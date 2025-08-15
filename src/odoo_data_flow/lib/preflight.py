@@ -4,7 +4,7 @@ These checks are run before the main import process to catch common,
 systemic errors early (e.g., missing languages, incorrect configuration).
 """
 
-from typing import Any, Callable, Optional, cast
+from typing import Any, Callable, Optional, Union, cast
 
 import polars as pl
 from polars.exceptions import ColumnNotFoundError
@@ -31,13 +31,15 @@ def register_check(func: Callable[..., bool]) -> Callable[..., bool]:
 
 @register_check
 def connection_check(
-    preflight_mode: "PreflightMode", config: str, **kwargs: Any
+    preflight_mode: "PreflightMode", config: Union[str, dict], **kwargs: Any
 ) -> bool:
     """Pre-flight check to verify connection to Odoo."""
     log.info("Running pre-flight check: Verifying Odoo connection...")
     try:
-        # This line implicitly checks the connection
-        conf_lib.get_connection_from_config(config_file=config)
+        if isinstance(config, dict):
+            conf_lib.get_connection_from_dict(config)
+        else:
+            conf_lib.get_connection_from_config(config_file=config)
         log.info("Connection to Odoo successful.")
         return True
     except Exception as e:
@@ -77,10 +79,13 @@ def self_referencing_check(
     return True
 
 
-def _get_installed_languages(config_file: str) -> Optional[set[str]]:
+def _get_installed_languages(config: Union[str, dict]) -> Optional[set[str]]:
     """Connects to Odoo and returns the set of installed language codes."""
     try:
-        connection = conf_lib.get_connection_from_config(config_file)
+        if isinstance(config, dict):
+            connection = conf_lib.get_connection_from_dict(config)
+        else:
+            connection = conf_lib.get_connection_from_config(config)
 
         lang_obj = connection.get_model("res.lang")
         installed_langs_data = lang_obj.search_read([("active", "=", True)], ["code"])
@@ -107,7 +112,7 @@ def language_check(
     preflight_mode: PreflightMode,
     model: str,
     filename: str,
-    config: str,
+    config: Union[str, dict],
     headless: bool,
     **kwargs: Any,
 ) -> bool:
@@ -188,25 +193,29 @@ def language_check(
         return False
 
 
-def _get_odoo_fields(config: str, model: str) -> Optional[dict[str, Any]]:
+def _get_odoo_fields(config: Union[str, dict], model: str) -> Optional[dict[str, Any]]:
     """Fetches the field schema for a given model from Odoo.
 
     Args:
-        config: The path to the connection configuration file.
+        config: The path to the connection configuration file or a config dict.
         model: The target Odoo model name.
 
     Returns:
         A dictionary of the model's fields, or None on failure.
     """
     # 1. Try to load from cache first
-    cached_fields = cache.load_fields_get_cache(config, model)
-    if cached_fields:
-        return cached_fields
+    if isinstance(config, str):
+        cached_fields = cache.load_fields_get_cache(config, model)
+        if cached_fields:
+            return cached_fields
 
     # 2. If cache miss, fetch from Odoo
     log.info(f"Cache miss for '{model}' fields, fetching from Odoo...")
     try:
-        connection: Any = conf_lib.get_connection_from_config(config_file=config)
+        if isinstance(config, dict):
+            connection: Any = conf_lib.get_connection_from_dict(config)
+        else:
+            connection: Any = conf_lib.get_connection_from_config(config_file=config)
         model_obj = connection.get_model(model)
         odoo_fields = cast(dict[str, Any], model_obj.fields_get())
 
@@ -340,7 +349,7 @@ def deferral_and_strategy_check(
     preflight_mode: "PreflightMode",
     model: str,
     filename: str,
-    config: str,
+    config: Union[str, dict],
     import_plan: dict[str, Any],
     **kwargs: Any,
 ) -> bool:
