@@ -54,3 +54,26 @@ All functions, methods, and classes require **Google-style docstrings**.
 
 -   **Format:** Start with a one-line summary ending in a period, followed by a blank line.
 -   **Content:** Clearly document `Args:` and `Returns:`.
+
+## Test Odoo Modules
+
+**Purpose**: Run unit and integration tests for custom Odoo modules.
+
+**Prerequisites**:
+- The `odoo` directory must exist.
+- The `venv` virtual environment must be active.
+- A PostgreSQL database container named `odoo-test-db` must be running.
+
+**Steps**:
+1.  **Check for j-base branch**:
+    ```bash
+    if [ "$(git rev-parse --abbrev-ref HEAD)" = "j-base" ]; then
+      ./odoo/odoo-bin --test-enable --addons-path=./odoo/addons,./modules --database=odoo_test --without-demo=all
+    else
+      echo "Skipping tests as this is not the j-base branch."
+      exit 0
+    fi
+    ```
+
+**Result**:
+- Tests will be executed and the results will be displayed.
