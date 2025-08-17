@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Form View -->
+    <record id="view_odf_flow_project_form" model="ir.ui.view">
+        <field name="name">odf.flow.project.form</field>
+        <field name="model">odf.flow.project</field>
+        <field name="arch" type="xml">
+            <form string="Flow Project">
+                <sheet>
+                    <group>
+                        <field name="name"/>
+                        <field name="active"/>
+                        <field name="source_connection_id"/>
+                        <field name="destination_connection_id"/>
+                        <field name="flow_file_path"/>
+                        <field name="status"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- Tree View -->
+    <record id="view_odf_flow_project_tree" model="ir.ui.view">
+        <field name="name">odf.flow.project.tree</field>
+        <field name="model">odf.flow.project</field>
+        <field name="arch" type="xml">
+            <tree string="Flow Projects">
+                <field name="name"/>
+                <field name="status"/>
+            </tree>
+        </field>
+    </record>
+
+    <!-- Action -->
+    <record id="action_odf_flow_project" model="ir.actions.act_window">
+        <field name="name">Flow Projects</field>
+        <field name="res_model">odf.flow.project</field>
+        <field name="view_mode">tree,form</field>
+    </record>
+</odoo>

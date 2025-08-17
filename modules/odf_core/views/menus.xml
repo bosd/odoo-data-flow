@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Main Menu -->
+    <menuitem
+        id="menu_odf_root"
+        name="Data Flow"
+        sequence="10"/>
+
+    <!-- Projects Menu -->
+    <menuitem
+        id="menu_odf_projects"
+        name="Projects"
+        parent="menu_odf_root"
+        action="action_odf_flow_project"
+        sequence="10"/>
+
+    <!-- Configuration Menu -->
+    <menuitem
+        id="menu_odf_configuration"
+        name="Configuration"
+        parent="menu_odf_root"
+        sequence="100"/>
+
+    <!-- Connections Menu -->
+    <menuitem
+        id="menu_odf_connections"
+        name="Connections"
+        parent="menu_odf_configuration"
+        action="action_odf_connection"
+        sequence="10"/>
+</odoo>

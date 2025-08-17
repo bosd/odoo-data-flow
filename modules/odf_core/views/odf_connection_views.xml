@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Form View -->
+    <record id="view_odf_connection_form" model="ir.ui.view">
+        <field name="name">odf.connection.form</field>
+        <field name="model">odf.connection</field>
+        <field name="arch" type="xml">
+            <form string="Connection">
+                <header>
+                    <button name="test_connection" type="object" string="Test Connection" class="oe_highlight"/>
+                </header>
+                <sheet>
+                    <group>
+                        <field name="name"/>
+                        <field name="host"/>
+                        <field name="port"/>
+                        <field name="dbname"/>
+                        <field name="user"/>
+                        <field name="password"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- Tree View -->
+    <record id="view_odf_connection_tree" model="ir.ui.view">
+        <field name="name">odf.connection.tree</field>
+        <field name="model">odf.connection</field>
+        <field name="arch" type="xml">
+            <tree string="Connections">
+                <field name="name"/>
+                <field name="host"/>
+                <field name="dbname"/>
+                <field name="user"/>
+            </tree>
+        </field>
+    </record>
+
+    <!-- Action -->
+    <record id="action_odf_connection" model="ir.actions.act_window">
+        <field name="name">Connections</field>
+        <field name="res_model">odf.connection</field>
+        <field name="view_mode">tree,form</field>
+    </record>
+</odoo>

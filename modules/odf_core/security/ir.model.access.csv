@@ -1,0 +1,3 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_odf_connection,odf.connection access,model_odf_connection,base.group_user,1,1,1,1
+access_odf_flow_project,odf.flow.project access,model_odf_flow_project,base.group_user,1,1,1,1
