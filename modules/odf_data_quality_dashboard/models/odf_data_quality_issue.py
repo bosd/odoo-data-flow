@@ -63,7 +63,7 @@ class OdfDataQualityIssue(models.Model):
         partners = self.env["res.partner"].search(
             [
                 ("is_company", "=", True),
-                ("create_date", ">=", yesterday.strftime("%Y-%m-%d %H:%M:%S")),
+                ("create_date", ">=", yesterday),
                 ("vat", "=", False),
             ]
         )
