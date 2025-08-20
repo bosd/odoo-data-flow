@@ -4,7 +4,7 @@
     <record id="action_odf_data_quality_issue" model="ir.actions.act_window">
         <field name="name">Data Quality Issues</field>
         <field name="res_model">odf.data.quality.issue</field>
-        <field name="view_mode">kanban,form</field>
+        <field name="view_mode">tree,kanban,form</field>
         <field name="help" type="html">
             <p class="o_view_nocontent_smiling_face">
                 No data quality issues found. Everything looks good!
