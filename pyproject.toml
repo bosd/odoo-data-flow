@@ -193,6 +193,7 @@ exclude = [
 
 
 [tool.ruff.lint.per-file-ignores]
+"**/__manifest__.py" = ["B018"]
 "*/test_*.py" = ["S101"]
 "noxfile.py" = ["S101"]
 "**/conftest.py" = ["S101"]
