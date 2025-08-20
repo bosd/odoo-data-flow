@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+        <!-- Top menu -->
+        <menuitem
+            id="menu_odf_root"
+            name="Data Flow"
+            sequence="10"/>
+
+        <!-- Sub menu -->
+        <menuitem
+            id="menu_odf_data_quality_dashboard"
+            name="Data Quality Dashboard"
+            parent="menu_odf_root"
+            action="action_odf_data_quality_issue"
+            sequence="10"/>
+
+    </data>
+</odoo>
