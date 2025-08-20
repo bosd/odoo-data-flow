@@ -55,6 +55,7 @@ class OdfDataQualityIssue(models.Model):
         """Run all nightly data validation checks."""
         self._check_partners_with_missing_vat()
 
+    @api.model
     def _check_partners_with_missing_vat(self):
         """Check for partners created in the last 24h with missing VAT."""
         yesterday = datetime.now() - timedelta(days=1)
