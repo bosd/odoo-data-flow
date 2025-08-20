@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+        <!-- Form View -->
+        <record id="view_odf_data_quality_issue_form" model="ir.ui.view">
+            <field name="name">odf.data.quality.issue.form</field>
+            <field name="model">odf.data.quality.issue</field>
+            <field name="arch" type="xml">
+                <form string="Data Quality Issue">
+                    <sheet>
+                        <group>
+                            <field name="name"/>
+                            <field name="issue_type"/>
+                            <field name="related_record"/>
+                            <field name="status"/>
+                        </group>
+                        <notebook>
+                            <page string="Notes">
+                                <field name="notes"/>
+                            </page>
+                        </notebook>
+                    </sheet>
+                </form>
+            </field>
+        </record>
+
+        <!-- Kanban View -->
+        <record id="view_odf_data_quality_issue_kanban" model="ir.ui.view">
+            <field name="name">odf.data.quality.issue.kanban</field>
+            <field name="model">odf.data.quality.issue</field>
+            <field name="arch" type="xml">
+                <kanban default_group_by="status">
+                    <field name="status"/>
+                    <templates>
+                        <t t-name="kanban-box">
+                            <div class="oe_kanban_global_click">
+                                <div class="oe_kanban_details">
+                                    <strong><field name="name"/></strong>
+                                    <div>Type: <field name="issue_type"/></div>
+                                    <div>Record: <field name="related_record"/></div>
+                                </div>
+                            </div>
+                        </t>
+                    </templates>
+                </kanban>
+            </field>
+        </record>
+
+        <!-- Tree View -->
+        <record id="view_odf_data_quality_issue_tree" model="ir.ui.view">
+            <field name="name">odf.data.quality.issue.tree</field>
+            <field name="model">odf.data.quality.issue</field>
+            <field name="arch" type="xml">
+                <tree string="Data Quality Issues">
+                    <field name="name"/>
+                    <field name="issue_type"/>
+                    <field name="related_record"/>
+                    <field name="status"/>
+                </tree>
+            </field>
+        </record>
+
+        <!-- Action -->
+        <record id="action_odf_data_quality_issue" model="ir.actions.act_window">
+            <field name="name">Data Quality Issues</field>
+            <field name="res_model">odf.data.quality.issue</field>
+            <field name="view_mode">kanban,tree,form</field>
+        </record>
+
+    </data>
+</odoo>
