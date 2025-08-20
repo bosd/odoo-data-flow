@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+
+        <record id="module_category_data_quality" model="ir.module.category">
+            <field name="name">Data Quality</field>
+            <field name="description">User access levels for the Data Quality Dashboard module.</field>
+            <field name="sequence">20</field>
+        </record>
+
+        <record id="group_odf_data_quality_user" model="res.groups">
+            <field name="name">User</field>
+            <field name="category_id" ref="module_category_data_quality"/>
+            <field name="implied_ids" eval="[(4, ref('base.group_user'))]"/>
+        </record>
+
+        <record id="group_odf_data_quality_manager" model="res.groups">
+            <field name="name">Manager</field>
+            <field name="category_id" ref="module_category_data_quality"/>
+            <field name="implied_ids" eval="[(4, ref('group_odf_data_quality_user'))]"/>
+            <field name="users" eval="[(4, ref('base.user_root')), (4, ref('base.user_admin'))]"/>
+        </record>
+
+    </data>
+</odoo>
