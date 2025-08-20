@@ -66,8 +66,9 @@ class OdfDataQualityIssue(models.Model):
                 ("vat", "=", False),
             ]
         )
+        vals_list = []
         for partner in partners:
-            self.create(
+            vals_list.append(
                 {
                     "name": f"Missing VAT for Partner: {partner.name}",
                     "issue_type": "Missing VAT",
@@ -79,3 +80,5 @@ class OdfDataQualityIssue(models.Model):
                     ),
                 }
             )
+        if vals_list:
+            self.create(vals_list)
