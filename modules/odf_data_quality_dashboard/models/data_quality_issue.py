@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from odoo import api, fields, models
 
 
@@ -53,8 +55,6 @@ def _selection_related_record(self):
         """Check for partners with invalid VAT numbers using a performant,
         batch-oriented approach.
         """
-        from datetime import timedelta
-
         yesterday = fields.Datetime.now() - timedelta(days=1)
 
         # 1. Fetch all partners modified recently that have a VAT number.
