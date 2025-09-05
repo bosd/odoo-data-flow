@@ -1,36 +1,40 @@
-# -*- coding: utf-8 -*-
 from odoo import api, fields, models
 
 
 class DataQualityIssue(models.Model):
-    _name = 'odf.data.quality.issue'
-    _description = 'Data Quality Issue'
+    """Represents a data quality issue found in the system.
+    This model stores records of data inconsistencies or errors,
+    allowing users to track and resolve them in a structured manner.
+    """
+
+    _name = "odf.data.quality.issue"
+    _description = "Data Quality Issue"
 
     name = fields.Char(
-        string='Name',
+        string="Name",
         required=True,
     )
     issue_type = fields.Char(
-        string='Issue Type',
+        string="Issue Type",
     )
     related_record = fields.Reference(
         selection=[
-            ('res.partner', 'Partner'),
-            ('product.product', 'Product'),
+            ("res.partner", "Partner"),
+            ("product.product", "Product"),
         ],
-        string='Related Record',
+        string="Related Record",
     )
     status = fields.Selection(
         selection=[
-            ('new', 'New'),
-            ('in_progress', 'In Progress'),
-            ('resolved', 'Resolved'),
+            ("new", "New"),
+            ("in_progress", "In Progress"),
+            ("resolved", "Resolved"),
         ],
-        string='Status',
-        default='new',
+        string="Status",
+        default="new",
     )
     notes = fields.Text(
-        string='Notes',
+        string="Notes",
     )
 
     @api.model
@@ -40,36 +44,41 @@ class DataQualityIssue(models.Model):
 
     @api.model
     def _check_partner_vat(self):
-        """
-        Check for partners with invalid VAT numbers using Odoo's built-in
-        VAT validation and a batched VIES check.
+        """Check for partners with invalid VAT numbers using a performant,
+        batch-oriented approach.
         """
         from datetime import timedelta
-        import time
 
         yesterday = fields.Datetime.now() - timedelta(days=1)
 
-        # 1. Fetch partners that need checking.
-        partners_to_check = self.env["res.partner"].search([
-            ("write_date", ">=", fields.Datetime.to_string(yesterday)),
-            ("vat", "!=", False),
-            ("vat", "!=", ""),
-        ])
+        # 1. Fetch all partners modified recently that have a VAT number.
+        partners_to_check = self.env["res.partner"].search(
+            [
+                ("write_date", ">=", fields.Datetime.to_string(yesterday)),
+                ("vat", "!=", False),
+                ("vat", "!=", ""),
+            ]
+        )
 
         if not partners_to_check:
             return
 
-        # 2. Filter out partners that already have an open "Invalid VAT" issue.
-        existing_issues = self.env["odf.data.quality.issue"].search([
-            ("related_record", "in", [f"res.partner,{pid}" for pid in partners_to_check.ids]),
-            ("issue_type", "=", "Invalid VAT"),
-            ("status", "!=", "resolved"),
-        ])
-        partners_with_existing_issue_ids = {
-            issue.related_record.id for issue in existing_issues if issue.related_record
-        }
-        partners_to_validate = partners_to_check.filtered(
-            lambda p: p.id not in partners_with_existing_issue_ids
+        # 2. Fetch all existing, unresolved "Invalid VAT" issues for the partners.
+        existing_issues = self.env["odf.data.quality.issue"].search(
+            [
+                (
+                    "related_record",
+                    "in",
+                    [f"res.partner,{pid}" for pid in partners_to_check.ids],
+                ),
+                ("issue_type", "=", "Invalid VAT"),
+                ("status", "!=", "resolved"),
+            ]
+        )
+        partners_with_existing_issue = set(
+            issue.related_record.id
+            for issue in existing_issues
+            if issue.related_record
         )
 
         if not partners_to_validate:
@@ -112,4 +121,4 @@ class DataQualityIssue(models.Model):
             })
 
         if issues_to_create:
-            self.env['odf.data.quality.issue'].create(issues_to_create)
+            self.env["odf.data.quality.issue"].create(issues_to_create)
