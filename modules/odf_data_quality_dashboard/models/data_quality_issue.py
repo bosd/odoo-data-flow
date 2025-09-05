@@ -18,10 +18,7 @@ class DataQualityIssue(models.Model):
         string="Issue Type",
     )
     related_record = fields.Reference(
-        selection=[
-            ("res.partner", "Partner"),
-            ("product.product", "Product"),
-        ],
+        selection="_selection_related_record",
         string="Related Record",
     )
     status = fields.Selection(
@@ -36,6 +33,15 @@ class DataQualityIssue(models.Model):
     notes = fields.Text(
         string="Notes",
     )
+
+
+@api.model
+def _selection_related_record(self):
+    """Return the list of models that can be checked."""
+    return [
+        ("res.partner", "Partner"),
+        ("product.product", "Product"),
+    ]
 
     @api.model
     def _run_data_quality_checks(self):
