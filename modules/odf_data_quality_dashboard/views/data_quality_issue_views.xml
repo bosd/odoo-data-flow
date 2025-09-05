@@ -47,17 +47,17 @@
             </field>
         </record>
 
-        <!-- Tree View -->
-        <record id="view_odf_data_quality_issue_tree" model="ir.ui.view">
-            <field name="name">odf.data.quality.issue.tree</field>
+        <!-- List View -->
+        <record id="view_odf_data_quality_issue_list" model="ir.ui.view">
+            <field name="name">odf.data.quality.issue.list</field>
             <field name="model">odf.data.quality.issue</field>
             <field name="arch" type="xml">
-                <tree string="Data Quality Issues">
+                <list string="Data Quality Issues">
                     <field name="name"/>
                     <field name="issue_type"/>
                     <field name="related_record"/>
                     <field name="status"/>
-                </tree>
+                </list>
             </field>
         </record>
 
@@ -65,7 +65,7 @@
         <record id="action_odf_data_quality_issue" model="ir.actions.act_window">
             <field name="name">Data Quality Issues</field>
             <field name="res_model">odf.data.quality.issue</field>
-            <field name="view_mode">kanban,tree,form</field>
+            <field name="view_mode">kanban,list,form</field>
         </record>
 
     </data>

@@ -8,8 +8,8 @@
     "category": "Tools",
     "depends": ["base", "base_vat"],
     "data": [
-        "security/ir.model.access.csv",
         "security/security.xml",
+        "security/ir.model.access.csv",
         "data/res_users.xml",
         "data/scheduled_actions.xml",
         "views/data_quality_issue_views.xml",
