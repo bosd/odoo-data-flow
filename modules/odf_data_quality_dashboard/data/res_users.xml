@@ -6,7 +6,7 @@
             <field name="name">Data Quality Cron User</field>
             <field name="login">data_quality_cron_user</field>
             <!-- This user is for programmatic access only and should not be used by a human -->
-            <field name="password">odoo</field>
+            
             <field name="groups_id" eval="[(6, 0, [ref('odf_data_quality_dashboard.group_odf_data_quality_user')])]"/>
         </record>
 
