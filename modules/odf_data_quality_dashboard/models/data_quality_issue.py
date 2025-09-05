@@ -37,14 +37,13 @@ class DataQualityIssue(models.Model):
         string="Notes",
     )
 
-
-@api.model
-def _selection_related_record(self):
-    """Return the list of models that can be checked."""
-    return [
-        ("res.partner", "Partner"),
-        ("product.product", "Product"),
-    ]
+    @api.model
+    def _selection_related_record(self):
+        """Return the list of models that can be checked."""
+        return [
+            ("res.partner", "Partner"),
+            ("product.product", "Product"),
+        ]
 
     @api.model
     def _run_data_quality_checks(self):
@@ -95,14 +94,14 @@ def _selection_related_record(self):
             return
 
         # 3. Perform validation checks.
-        invalid_partners = self.env['res.partner']
+        invalid_partners = self.env["res.partner"]
 
         # 3a. First, run the VIES check in batches if enabled. This is the most
         # reliable check, but it is remote and requires careful handling.
         if self.env.company.vat_check_vies:
             batch_size = 10  # Process 10 partners per batch
             for i in range(0, len(partners_to_validate), batch_size):
-                batch = partners_to_validate[i:i + batch_size]
+                batch = partners_to_validate[i : i + batch_size]
                 try:
                     # The button_vies_check method from base_vat is designed to
                     # be called on a recordset and handles iteration internally.
@@ -110,13 +109,15 @@ def _selection_related_record(self):
                 except Exception as e:
                     # If the VIES service fails, we can't validate this batch.
                     # We could log this, but for now we'll just continue.
-                    _logger.warning("VIES check failed for batch with error: %s", e)
+                    _logger.warning(
+                        "VIES check failed for batch with error: %s", e
+                    )
                 time.sleep(1)  # Wait 1 second between batches to be safe.
 
         # 3b. Now, check the validation status. The `check_vat` method in
         # `base_vat` provides the definitive status, incorporating the
         # result of the VIES check if it was performed.
-        partners_to_validate.refresh() # Refresh to get latest status
+        partners_to_validate.refresh()  # Refresh to get latest status
         for partner in partners_to_validate:
             if not partner.check_vat():
                 invalid_partners |= partner
@@ -124,11 +125,13 @@ def _selection_related_record(self):
         # 4. Create issues for all invalid partners found.
         issues_to_create = []
         for partner in invalid_partners:
-            issues_to_create.append({
-                'name': f"Invalid VAT number for '{partner.display_name}'",
-                'issue_type': 'Invalid VAT',
-                'related_record': f'res.partner,{partner.id}',
-            })
+            issues_to_create.append(
+                {
+                    "name": f"Invalid VAT number for '{partner.display_name}'",
+                    "issue_type": "Invalid VAT",
+                    "related_record": f"res.partner,{partner.id}",
+                }
+            )
 
         if issues_to_create:
             self.env["odf.data.quality.issue"].create(issues_to_create)
