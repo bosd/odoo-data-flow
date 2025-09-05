@@ -107,10 +107,10 @@ def _selection_related_record(self):
                     # The button_vies_check method from base_vat is designed to
                     # be called on a recordset and handles iteration internally.
                     batch.button_vies_check()
-                except Exception:
+                except Exception as e:
                     # If the VIES service fails, we can't validate this batch.
                     # We could log this, but for now we'll just continue.
-                    pass
+                    _logger.warning("VIES check failed for batch with error: %s", e)
                 time.sleep(1)  # Wait 1 second between batches to be safe.
 
         # 3b. Now, check the validation status. The `check_vat` method in
