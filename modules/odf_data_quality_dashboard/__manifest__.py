@@ -7,7 +7,8 @@
     'website': 'https://github.com/OdooDataFlow/odoo-data-flow',
     'license': 'AGPL-3',
     'category': 'Tools',
-    'depends': ['base'],
+
+    'depends': ['base', 'base_vat'],
     'data': [
         'security/ir.model.access.csv',
         'security/security.xml',
