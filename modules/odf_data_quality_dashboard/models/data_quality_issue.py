@@ -87,6 +87,9 @@ def _selection_related_record(self):
             for issue in existing_issues
             if issue.related_record
         )
+        partners_to_validate = partners_to_check.filtered(
+            lambda p: p.id not in partners_with_existing_issue
+        )
 
         if not partners_to_validate:
             return
