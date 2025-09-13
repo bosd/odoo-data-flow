@@ -151,6 +151,30 @@ class TestImportData:
         assert unsorted_data[0][0] == "child1"
         assert unsorted_data[1][0] == "parent1"
 
+    @patch("odoo_data_flow.import_threaded._read_data_file")
+    @patch("odoo_data_flow.import_threaded.conf_lib.get_connection_from_dict")
+    @patch("odoo_data_flow.import_threaded._run_threaded_pass")
+    def test_import_data_with_dict_config(
+        self,
+        mock_run_pass: MagicMock,
+        mock_get_conn: MagicMock,
+        mock_read_file: MagicMock,
+    ) -> None:
+        """Test import_data with a dictionary config."""
+        mock_read_file.return_value = (["id", "name"], [["xml_a", "A"]])
+        mock_run_pass.return_value = ({"id_map": {"xml_a": 101}}, False)
+        mock_get_conn.return_value.get_model.return_value = MagicMock()
+
+        result, _ = import_data(
+            config={"host": "localhost"},
+            model="res.partner",
+            unique_id_field="id",
+            file_csv="dummy.csv",
+        )
+
+        assert result is True
+        mock_get_conn.assert_called_once_with({"host": "localhost"})
+
 
 class TestExecuteLoadBatch:
     """Tests for the _execute_load_batch function's resilience features."""
@@ -661,3 +685,119 @@ class TestRecursiveBatching:
             mock_log.error.assert_called_once_with(
                 "Grouping column 'non_existent' not found. Cannot use --groupby."
             )
+
+
+class TestImportThreadedHelpers:
+    """Tests for helper functions in import_threaded.py."""
+
+    def test_read_data_file_with_skip(self, tmp_path: Path) -> None:
+        """Test that _read_data_file correctly skips lines."""
+        source_file = tmp_path / "source.csv"
+        source_file.write_text("skip1\nskip2\nid,name\n1,Alice")
+        header, data = _read_data_file(str(source_file), ",", "utf-8", 2)
+        assert header == ["id", "name"]
+        assert data == [["1", "Alice"]]
+
+    def test_filter_ignored_columns_malformed_row(self) -> None:
+        """Test that malformed rows are skipped when filtering."""
+        from odoo_data_flow.import_threaded import _filter_ignored_columns
+
+        header = ["id", "name", "age", "city"]
+        data = [
+            ["1", "Alice", "30", "New York"],
+            ["2", "Bob"],  # Malformed row
+        ]
+        ignore = ["age"]
+        new_header, new_data = _filter_ignored_columns(ignore, header, data)
+        assert new_header == ["id", "name", "city"]
+        assert new_data == [["1", "Alice", "New York"]]
+
+    def test_create_batch_individually_existing_record(self) -> None:
+        """Test that existing records are skipped in individual creation mode."""
+        mock_model = MagicMock()
+        existing_record = MagicMock()
+        existing_record.id = 123
+        mock_model.browse.return_value.env.ref.return_value = existing_record
+        batch_header = ["id", "name"]
+        batch_lines = [["record1", "Alice"]]
+
+        result = _create_batch_individually(
+            mock_model, batch_lines, batch_header, 0, {}, []
+        )
+
+        assert result["id_map"] == {"record1": 123}
+        assert not result["failed_lines"]
+        mock_model.create.assert_not_called()
+
+    @patch("odoo_data_flow.import_threaded._create_batch_individually")
+    def test_execute_load_batch_timeout(
+        self, mock_create_individually: MagicMock
+    ) -> None:
+        """Test that a client-side timeout is ignored."""
+        from httpx import ReadTimeout
+
+        mock_model = MagicMock()
+        mock_model.load.side_effect = ReadTimeout("Read timeout")
+        mock_progress = MagicMock()
+        thread_state = {
+            "model": mock_model,
+            "progress": mock_progress,
+            "unique_id_field_index": 0,
+            "ignore_list": [],
+        }
+        batch_header = ["id", "name"]
+        batch_lines = [["rec1", "A"]]
+
+        result = _execute_load_batch(thread_state, batch_lines, batch_header, 1)
+
+        assert result["success"] is True
+        assert not result["id_map"]
+        mock_create_individually.assert_not_called()
+        mock_progress.console.print.assert_any_call(
+            "[yellow]INFO:[/] Batch 1 processing on server. "
+            "Continuing to wait for completion..."
+        )
+
+    def test_execute_write_batch_fails(self) -> None:
+        """Test that a failure in a write batch is handled."""
+        from odoo_data_flow.import_threaded import _execute_write_batch
+
+        mock_model = MagicMock()
+        mock_model.write.side_effect = Exception("Access Denied")
+        thread_state = {"model": mock_model}
+        batch_writes = ([1, 2], {"name": "New Name"})
+
+        result = _execute_write_batch(thread_state, batch_writes, 1)
+
+        assert result["success"] is False
+        assert len(result["failed_writes"]) == 2
+        assert result["failed_writes"][0][0] == 1
+        assert "Access Denied" in result["failed_writes"][0][2]
+
+
+class TestRunThreadedPass:
+    """Tests for the _run_threaded_pass orchestrator."""
+
+    @patch("odoo_data_flow.import_threaded.concurrent.futures.as_completed")
+    def test_run_threaded_pass_consecutive_failures(
+        self, mock_as_completed: MagicMock
+    ) -> None:
+        """Test that the import is aborted after 50 consecutive failures."""
+        from odoo_data_flow.import_threaded import RPCThreadImport, _run_threaded_pass
+
+        rpc_thread = RPCThreadImport(1, Progress(), MagicMock())
+        rpc_thread.task_id = rpc_thread.progress.add_task("test")
+        target_func = MagicMock()
+        target_func.__name__ = "mock_func"
+
+        # Simulate 50 failed futures
+        futures = []
+        for i in range(50):
+            future = MagicMock()
+            future.result.return_value = {"success": False}
+            futures.append(future)
+        mock_as_completed.return_value = futures
+
+        with patch.object(rpc_thread, "spawn_thread", return_value=MagicMock()):
+            _, aborted = _run_threaded_pass(rpc_thread, target_func, [(1, {})], {})
+            assert aborted is True

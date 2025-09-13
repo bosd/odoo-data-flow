@@ -80,11 +80,11 @@ def _read_data_file(
     try:
         with open(file_path, encoding=encoding, newline="") as f:
             reader = csv.reader(f, delimiter=separator)
+            for _ in range(skip):
+                next(reader)
             header = next(reader)
             if "id" not in header:
                 raise ValueError("Source file must contain an 'id' column.")
-            for _ in range(skip):
-                next(reader)
             return header, list(reader)
     except FileNotFoundError:
         log.error(f"Source file not found: {file_path}")

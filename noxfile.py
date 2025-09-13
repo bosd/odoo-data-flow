@@ -128,7 +128,7 @@ def precommit(session: nox.Session) -> None:
         "lint",
         external=True,
     )
-    session.run("pre-commit", *args, external=True)
+    session.run("pre-commit", *args)
     if args and args[0] == "install":
         activate_virtualenv_in_precommit_hooks(session)
 
