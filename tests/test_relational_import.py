@@ -137,6 +137,7 @@ class TestResolveRelatedIds:
         result = relational_import._resolve_related_ids(
             "dummy.conf", "res.partner.category", pl.Series(["cat1"])
         )
+        assert result is not None
         assert_frame_equal(result, cached_df)
         mock_load_id_map.assert_called_once_with("dummy.conf", "res.partner.category")
 
