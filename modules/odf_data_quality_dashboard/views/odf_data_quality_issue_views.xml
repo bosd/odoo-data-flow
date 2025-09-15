@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Action -->
+    <record id="action_odf_data_quality_issue" model="ir.actions.act_window">
+        <field name="name">Data Quality Issues</field>
+        <field name="res_model">odf.data.quality.issue</field>
+        <field name="view_mode">tree,kanban,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                No data quality issues found. Everything looks good!
+            </p>
+        </field>
+    </record>
+
+    <!-- Kanban View -->
+    <record id="view_odf_data_quality_issue_kanban" model="ir.ui.view">
+        <field name="name">odf.data.quality.issue.kanban</field>
+        <field name="model">odf.data.quality.issue</field>
+        <field name="arch" type="xml">
+            <kanban default_group_by="status" class="o_kanban_small_column">
+                <field name="status"/>
+                <templates>
+                    <t t-name="kanban-box">
+                        <div t-attf-class="oe_kanban_global_click">
+                            <div class="oe_kanban_details">
+                                <strong><field name="name"/></strong>
+                                <div>
+                                    <span class="text-muted">Type: </span>
+                                    <field name="issue_type"/>
+                                </div>
+                                <div>
+                                    <span class="text-muted">Record: </span>
+                                    <field name="related_record"/>
+                                </div>
+                            </div>
+                        </div>
+                    </t>
+                </templates>
+            </kanban>
+        </field>
+    </record>
+
+    <!-- Form View -->
+    <record id="view_odf_data_quality_issue_form" model="ir.ui.view">
+        <field name="name">odf.data.quality.issue.form</field>
+        <field name="model">odf.data.quality.issue</field>
+        <field name="arch" type="xml">
+            <form string="Data Quality Issue">
+                <sheet>
+                    <group>
+                        <field name="name"/>
+                        <field name="issue_type"/>
+                        <field name="related_record"/>
+                        <field name="status"/>
+                    </group>
+                    <notebook>
+                        <page string="Notes">
+                            <field name="notes"/>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- Menu -->
+    <menuitem
+        id="menu_data_quality_root"
+        name="Data Quality"
+        sequence="99"/>
+
+    <menuitem
+        id="menu_data_quality_dashboard"
+        name="Dashboard"
+        parent="menu_data_quality_root"
+        action="action_odf_data_quality_issue"
+        sequence="10"/>
+</odoo>
