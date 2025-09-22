@@ -196,6 +196,23 @@ def run_import(  # noqa: C901
             # Disable deferred fields for this strategy
             deferred_fields = []
 
+    # Filter user-deferred fields to exclude required ones
+    if deferred_fields and model:
+        odoo_fields = preflight._get_odoo_fields(config, model)
+        if odoo_fields:
+            safe_deferred_fields = []
+            for field_name in deferred_fields:
+                clean_field_name = field_name.replace("/id", "")
+                field_info = odoo_fields.get(clean_field_name)
+                if field_info and field_info.get("required", False):
+                    log.warning(
+                        f"Field '{field_name}' is required and cannot be deferred. "
+                        "It will be imported in the first pass."
+                    )
+                else:
+                    safe_deferred_fields.append(field_name)
+            deferred_fields = safe_deferred_fields
+
     final_deferred = deferred_fields or import_plan.get("deferred_fields", [])
     final_uid_field = unique_id_field or import_plan.get("unique_id_field") or "id"
     fail_output_file = str(Path(filename).parent / _get_fail_filename(model, fail))
