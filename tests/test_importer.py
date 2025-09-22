@@ -380,3 +380,54 @@ def test_run_import_fail_mode_with_strategies(
     )
     mock_import_data.assert_called_once()
     mock_relational_import.assert_not_called()
+
+
+@patch("odoo_data_flow.importer.log")
+@patch("odoo_data_flow.importer.preflight._get_odoo_fields")
+@patch("odoo_data_flow.importer.import_threaded.import_data")
+@patch("odoo_data_flow.importer._run_preflight_checks")
+def test_run_import_does_not_defer_required_fields(
+    mock_preflight: MagicMock,
+    mock_import_data: MagicMock,
+    mock_get_odoo_fields: MagicMock,
+    mock_log: MagicMock,
+    tmp_path: Path,
+) -> None:
+    """Test that a required field is not deferred even if specified by the user."""
+    # Arrange
+    source_file = tmp_path / "source.csv"
+    source_file.touch()
+    mock_preflight.return_value = True
+    mock_import_data.return_value = (True, {"total_records": 1})
+    mock_get_odoo_fields.return_value = {
+        "partner_id": {"type": "many2one", "required": True}
+    }
+
+    # Act
+    run_import(
+        config="dummy.conf",
+        filename=str(source_file),
+        model="res.partner.bank",
+        deferred_fields=["partner_id"],
+        unique_id_field=None,
+        no_preflight_checks=False,
+        headless=True,
+        worker=1,
+        batch_size=100,
+        skip=0,
+        fail=False,
+        separator=";",
+        ignore=None,
+        context={},
+        encoding="utf-8",
+        o2m=False,
+        groupby=None,
+    )
+
+    # Assert
+    mock_import_data.assert_called_once()
+    assert mock_import_data.call_args.kwargs["deferred_fields"] == []
+    mock_log.warning.assert_called_once_with(
+        "Field 'partner_id' is required and cannot be deferred. "
+        "It will be imported in the first pass."
+    )

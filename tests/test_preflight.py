@@ -561,6 +561,42 @@ class TestDeferralAndStrategyCheck:
         mock_show_error_panel.assert_called_once()
         assert "Action Required" in mock_show_error_panel.call_args[0][0]
 
+    def test_required_relational_field_is_not_deferred(
+        self, mock_polars_read_csv: MagicMock, mock_conf_lib: MagicMock
+    ) -> None:
+        """Verify a required relational field is not deferred."""
+        mock_df_header = MagicMock()
+        mock_df_header.columns = ["id", "partner_id", "currency_id"]
+        mock_df_data = MagicMock()
+        mock_polars_read_csv.side_effect = [mock_df_header, mock_df_data]
+
+        mock_model = mock_conf_lib.return_value.get_model.return_value
+        mock_model.fields_get.return_value = {
+            "id": {"type": "integer"},
+            "partner_id": {
+                "type": "many2one",
+                "relation": "res.partner",
+                "required": True,
+            },
+            "currency_id": {
+                "type": "many2one",
+                "relation": "res.currency",
+                "required": False,
+            },
+        }
+        import_plan: dict[str, Any] = {}
+        result = preflight.deferral_and_strategy_check(
+            preflight_mode=PreflightMode.NORMAL,
+            model="res.partner.bank",
+            filename="file.csv",
+            config="",
+            import_plan=import_plan,
+        )
+        assert result is True
+        assert "deferred_fields" in import_plan
+        assert "partner_id" not in import_plan["deferred_fields"]
+        assert "currency_id" in import_plan["deferred_fields"]
+
 
 class TestGetOdooFields:
     """Tests for the _get_odoo_fields helper function."""
