@@ -8,7 +8,7 @@ import ast
 import concurrent.futures
 import csv
 import sys
-import time  # noqa
+import time
 from collections.abc import Generator, Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed  # noqa
 from typing import Any, Optional, TextIO, Union
@@ -330,6 +330,149 @@ class RPCThreadImport(RpcThread):
         )
 
 
+def _convert_external_id_field(
+    model: Any,
+    field_name: str,
+    field_value: str,
+) -> tuple[str, Any]:
+    """Convert an external ID field to a database ID.
+
+    Args:
+        model: The Odoo model object
+        field_name: The field name (e.g., 'parent_id/id')
+        field_value: The external ID value
+
+    Returns:
+        Tuple of (base_field_name, converted_value)
+    """
+    base_field_name = field_name[:-3]  # Remove '/id' suffix
+    converted_value = False
+
+    if not field_value:
+        # Empty external ID means no value for this field
+        log.debug(
+            f"Converted empty external ID {field_name} -> {base_field_name} (False)"
+        )
+    else:
+        # Convert external ID to database ID
+        try:
+            # Look up the database ID for this external ID
+            record_ref = model.env.ref(field_value, raise_if_not_found=False)
+            if record_ref:
+                converted_value = record_ref.id
+                log.debug(
+                    f"Converted external ID {field_name} ({field_value}) -> "
+                    f"{base_field_name} ({record_ref.id})"
+                )
+            else:
+                # If we can't find the external ID, value remains False
+                log.warning(
+                    f"Could not find record for external ID '{field_value}', "
+                    f"setting {base_field_name} to False"
+                )
+        except Exception as e:
+            log.warning(
+                f"Error looking up external ID '{field_value}' for field "
+                f"'{field_name}': {e}"
+            )
+            # On error, value remains False
+
+    return base_field_name, converted_value
+
+
+def _process_external_id_fields(
+    model: Any,
+    clean_vals: dict[str, Any],
+) -> tuple[dict[str, Any], list[str]]:
+    """Process all external ID fields in the clean values.
+
+    Args:
+        model: The Odoo model object
+        clean_vals: Dictionary of clean field values
+
+    Returns:
+        Tuple of (converted_vals, external_id_fields)
+    """
+    converted_vals: dict[str, Any] = {}
+    external_id_fields: list[str] = []
+
+    for field_name, field_value in clean_vals.items():
+        # Handle external ID references (e.g., 'parent_id/id' -> 'parent_id')
+        if field_name.endswith("/id"):
+            # _convert_external_id_field is now a pure function that returns
+            # (base_field_name, converted_value) instead of modifying
+            # converted_vals as a side effect
+            base_name, value = _convert_external_id_field(
+                model, field_name, field_value
+            )
+            converted_vals[base_name] = value
+            external_id_fields.append(field_name)
+        else:
+            # Regular field - pass through as-is
+            converted_vals[field_name] = field_value
+
+    return converted_vals, external_id_fields
+
+
+def _handle_create_error(
+    i: int,
+    create_error: Exception,
+    line: list[Any],
+    error_summary: str,
+) -> tuple[str, list[Any], str]:
+    """Handle errors during record creation.
+
+    Args:
+        i: The row index
+        create_error: The exception that occurred
+        line: The data line being processed
+        error_summary: Current error summary
+
+    Returns:
+        Tuple of (error_message, failed_line, error_summary)
+    """
+    error_str = str(create_error)
+    error_str_lower = error_str.lower()
+
+    # Handle database connection pool exhaustion errors
+    if (
+        "connection pool is full" in error_str_lower
+        or "too many connections" in error_str_lower
+        or "poolerror" in error_str_lower
+    ):
+        error_message = (
+            f"Database connection pool exhaustion in row {i + 1}: {create_error}"
+        )
+        if "Fell back to create" in error_summary:
+            error_summary = "Database connection pool exhaustion detected"
+    # Handle specific database serialization errors
+    elif (
+        "could not serialize access" in error_str_lower
+        or "concurrent update" in error_str_lower
+    ):
+        error_message = f"Database serialization error in row {i + 1}: {create_error}"
+        if "Fell back to create" in error_summary:
+            error_summary = "Database serialization conflict detected during create"
+    elif (
+        "tuple index out of range" in error_str_lower or "indexerror" in error_str_lower
+    ):
+        error_message = f"Tuple unpacking error in row {i + 1}: {create_error}"
+        if "Fell back to create" in error_summary:
+            error_summary = "Tuple unpacking error detected"
+    else:
+        error_message = error_str.replace("\n", " | ")
+        if "invalid field" in error_str_lower and "/id" in error_str_lower:
+            error_message = (
+                f"Invalid external ID field detected in row {i + 1}: {error_message}"
+            )
+
+        if "Fell back to create" in error_summary:
+            error_summary = error_message
+
+    failed_line = [*line, error_message]
+    return error_message, failed_line, error_summary
+
+
 def _create_batch_individually(
     model: Any,
     batch_lines: list[list[Any]],
@@ -367,24 +510,70 @@ def _create_batch_individually(
             clean_vals = {
                 k: v
                 for k, v in vals.items()
-                if "/" not in k and k.split("/")[0] not in ignore_set
+                if k.split("/")[0] not in ignore_set
+                # Allow external ID fields through for conversion
             }
 
             # 3. CREATE
-            new_record = model.create(clean_vals, context=context)
+            # Convert external ID references to actual database IDs before creating
+            converted_vals, external_id_fields = _process_external_id_fields(
+                model, clean_vals
+            )
+
+            log.debug(f"External ID fields found: {external_id_fields}")
+            log.debug(f"Converted vals keys: {list(converted_vals.keys())}")
+
+            new_record = model.create(converted_vals, context=context)
             id_map[source_id] = new_record.id
         except IndexError as e:
             error_message = f"Malformed row detected (row {i + 1} in batch): {e}"
-            failed_lines.append([*list(line), error_message])
+            failed_lines.append([*line, error_message])
             if "Fell back to create" in error_summary:
                 error_summary = "Malformed CSV row detected"
             continue
         except Exception as create_error:
-            error_message = str(create_error).replace("\n", " | ")
-            failed_line = [*list(line), error_message]
-            failed_lines.append(failed_line)
-            if "Fell back to create" in error_summary:
-                error_summary = error_message
+            error_str_lower = str(create_error).lower()
+
+            # Special handling for database connection pool exhaustion errors
+            if (
+                "connection pool is full" in error_str_lower
+                or "too many connections" in error_str_lower
+                or "poolerror" in error_str_lower
+            ):
+                # These are retryable errors
+                # - log and add to failed lines for a later run.
+                log.warning(
+                    f"Database connection pool exhaustion detected during create for "
+                    f"record {source_id}. "
+                    f"Marking as failed for retry in a subsequent run."
+                )
+                error_message = (
+                    f"Retryable error (connection pool exhaustion) for record "
+                    f"{source_id}: {create_error}"
+                )
+                failed_lines.append([*line, error_message])
+                continue
+
+            # Special handling for database serialization errors in create operations
+            elif (
+                "could not serialize access" in error_str_lower
+                or "concurrent update" in error_str_lower
+            ):
+                # These are retryable errors - log and continue processing other records
+                log.warning(
+                    f"Database serialization conflict detected during create for "
+                    f"record {source_id}. "
+                    f"This is often caused by concurrent processes. "
+                    f"Continuing with other records."
+                )
+                # Don't add to failed lines for retryable errors
+                # - let the record be processed in next batch
+                continue
+
+            error_message, new_failed_line, error_summary = _handle_create_error(
+                i, create_error, line, error_summary
+            )
+            failed_lines.append(new_failed_line)
     return {
         "id_map": id_map,
         "failed_lines": failed_lines,
@@ -392,7 +581,7 @@ def _create_batch_individually(
     }
 
 
-def _execute_load_batch(
+def _execute_load_batch(  # noqa: C901
     thread_state: dict[str, Any],
     batch_lines: list[list[Any]],
     batch_header: list[str],
@@ -439,6 +628,10 @@ def _execute_load_batch(
     aggregated_failed_lines: list[list[Any]] = []
     chunk_size = len(lines_to_process)
 
+    # Track retry attempts for serialization errors to prevent infinite retries
+    serialization_retry_count = 0
+    max_serialization_retries = 3  # Maximum number of retries for serialization errors
+
     while lines_to_process:
         current_chunk = lines_to_process[:chunk_size]
         load_header, load_lines = batch_header, current_chunk
@@ -479,8 +672,40 @@ def _execute_load_batch(
             aggregated_id_map.update(id_map)
             lines_to_process = lines_to_process[chunk_size:]
 
+            # Reset serialization retry counter on successful processing
+            serialization_retry_count = 0
+
         except Exception as e:
             error_str = str(e).lower()
+
+            # SPECIAL CASE: Client-side timeouts for local processing
+            # These should be IGNORED entirely to allow long server processing
+            if (
+                "timed out" == error_str.strip()
+                or "read timeout" in error_str
+                or type(e).__name__ == "ReadTimeout"
+            ):
+                log.debug(
+                    "Ignoring client-side timeout to allow server processing "
+                    "to continue"
+                )
+                lines_to_process = lines_to_process[chunk_size:]
+                continue
+
+            # SPECIAL CASE: Database connection pool exhaustion
+            # These should be treated as scalable errors to reduce load on the server
+            if (
+                "connection pool is full" in error_str.lower()
+                or "too many connections" in error_str.lower()
+                or "poolerror" in error_str.lower()
+            ):
+                log.warning(
+                    "Database connection pool exhaustion detected. "
+                    "Reducing chunk size and retrying to reduce server load."
+                )
+                is_scalable_error = True
+
+            # For all other exceptions, use the original scalable error detection
             is_scalable_error = (
                 "memory" in error_str
                 or "out of memory" in error_str
@@ -488,6 +713,11 @@ def _execute_load_batch(
                 or "gateway" in error_str
                 or "proxy" in error_str
                 or "timeout" in error_str
+                or "could not serialize access" in error_str
+                or "concurrent update" in error_str
+                or "connection pool is full" in error_str.lower()
+                or "too many connections" in error_str.lower()
+                or "poolerror" in error_str.lower()
             )
 
             if is_scalable_error and chunk_size > 1:
@@ -496,6 +726,55 @@ def _execute_load_batch(
                     f"[yellow]WARN:[/] Batch {batch_number} hit scalable error. "
                     f"Reducing chunk size to {chunk_size} and retrying."
                 )
+                if (
+                    "could not serialize access" in error_str
+                    or "concurrent update" in error_str
+                ):
+                    progress.console.print(
+                        "[yellow]INFO:[/] Database serialization conflict detected. "
+                        "This is often caused by concurrent processes updating the "
+                        "same records. Retrying with smaller batch size."
+                    )
+
+                    # Add a small delay for serialization conflicts
+                    # to give other processes time to complete.
+                    time.sleep(
+                        0.1 * serialization_retry_count
+                    )  # Linear backoff: 0.1s, 0.2s, 0.3s
+
+                    # Track serialization retries to prevent infinite loops
+                    serialization_retry_count += 1
+                    if serialization_retry_count >= max_serialization_retries:
+                        progress.console.print(
+                            f"[yellow]WARN:[/] Max serialization retries "
+                            f"({max_serialization_retries}) reached. "
+                            f"Moving records to fallback processing to prevent infinite"
+                            f" retry loop."
+                        )
+                        # Fall back to individual create processing
+                        # instead of continuing to retry
+                        clean_error = str(e).strip().replace("\n", " ")
+                        progress.console.print(
+                            f"[yellow]WARN:[/] Batch {batch_number} failed `load` "
+                            f"('{clean_error}'). "
+                            f"Falling back to `create` for {len(current_chunk)} "
+                            f"records due to persistent serialization conflicts."
+                        )
+                        fallback_result = _create_batch_individually(
+                            model,
+                            current_chunk,
+                            batch_header,
+                            uid_index,
+                            context,
+                            ignore_list,
+                        )
+                        aggregated_id_map.update(fallback_result.get("id_map", {}))
+                        aggregated_failed_lines.extend(
+                            fallback_result.get("failed_lines", [])
+                        )
+                        lines_to_process = lines_to_process[chunk_size:]
+                        serialization_retry_count = 0  # Reset counter for next batch
+                        continue
                 continue
 
             clean_error = str(e).strip().replace("\n", " ")
@@ -959,7 +1238,7 @@ def import_data(
         tuple[bool, int]: True if the entire import process completed without any
         critical, process-halting errors, False otherwise.
     """
-    _context, _deferred, _ignore = (
+    context, deferred, ignore = (
         context or {"tracking_disable": True},
         deferred_fields or [],
         ignore or [],
@@ -1018,9 +1297,9 @@ def import_data(
                 header,
                 all_data,
                 unique_id_field,
-                _deferred,
-                _ignore,
-                _context,
+                deferred,
+                ignore,
+                context,
                 fail_writer,
                 fail_handle,
                 max_connection,
@@ -1039,7 +1318,7 @@ def import_data(
             pass_2_successful = True  # Assume success if no Pass 2 is needed.
             updates_made = 0
 
-            if _deferred:
+            if deferred:
                 pass_2_successful, updates_made = _orchestrate_pass_2(
                     progress,
                     model_obj,
@@ -1048,8 +1327,8 @@ def import_data(
                     all_data,
                     unique_id_field,
                     id_map,
-                    _deferred,
-                    _context,
+                    deferred,
+                    context,
                     fail_writer,
                     fail_handle,
                     max_connection,

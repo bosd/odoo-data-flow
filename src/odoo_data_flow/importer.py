@@ -189,8 +189,9 @@ def run_import(  # noqa: C901
             id_column=import_plan["id_column"],
             parent_column=import_plan["parent_column"],
             encoding=encoding,
+            separator=separator,
         )
-        if sorted_temp_file:
+        if isinstance(sorted_temp_file, str):
             file_to_process = sorted_temp_file
             # Disable deferred fields for this strategy
             deferred_fields = []
@@ -230,7 +231,11 @@ def run_import(  # noqa: C901
             split_by_cols=groupby,
         )
     finally:
-        if sorted_temp_file and os.path.exists(sorted_temp_file):
+        if (
+            sorted_temp_file
+            and sorted_temp_file is not True
+            and os.path.exists(sorted_temp_file)
+        ):
             os.remove(sorted_temp_file)
 
     elapsed = time.time() - start_time
@@ -245,7 +250,7 @@ def run_import(  # noqa: C901
                 cache.save_id_map(config, model, id_map)
 
         # --- Pass 2: Relational Strategies ---
-        if import_plan.get("strategies"):
+        if import_plan.get("strategies") and not fail:
             source_df = pl.read_csv(
                 filename, separator=separator, truncate_ragged_lines=True
             )
@@ -280,7 +285,7 @@ def run_import(  # noqa: C901
                             )
                             Path(import_details["file_csv"]).unlink()
                     elif strategy_info["strategy"] == "write_tuple":
-                        relational_import.run_write_tuple_import(
+                        result = relational_import.run_write_tuple_import(
                             config,
                             model,
                             field,
@@ -293,8 +298,13 @@ def run_import(  # noqa: C901
                             task_id,
                             filename,
                         )
+                        if not result:
+                            log.warning(
+                                f"Write tuple import failed for field '{field}'. "
+                                "Check logs for details."
+                            )
                     elif strategy_info["strategy"] == "write_o2m_tuple":
-                        relational_import.run_write_o2m_tuple_import(
+                        result = relational_import.run_write_o2m_tuple_import(
                             config,
                             model,
                             field,
@@ -307,6 +317,11 @@ def run_import(  # noqa: C901
                             task_id,
                             filename,
                         )
+                        if not result:
+                            log.warning(
+                                f"Write O2M tuple import failed for field '{field}'. "
+                                "Check logs for details."
+                            )
                     progress.update(task_id, advance=1)
 
         log.info(

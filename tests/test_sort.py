@@ -39,9 +39,13 @@ def non_hierarchical_csv(tmp_path: Path) -> str:
 def test_sorts_correctly_when_self_referencing(hierarchical_csv: str) -> None:
     """Verify that a self-referencing CSV is sorted correctly."""
     sorted_file = sort_for_self_referencing(
-        hierarchical_csv, id_column="id", parent_column="parent_id"
+        hierarchical_csv, id_column="id", parent_column="parent_id", separator=","
     )
     assert sorted_file is not None
+    # Make sure it's not False (error case)
+    assert sorted_file is not False
+    # Make sure it's a string (not True)
+    assert isinstance(sorted_file, str)
 
     sorted_df = pl.read_csv(sorted_file)
     # Parents (p1, p2) should be the first two rows
@@ -56,7 +60,7 @@ def test_sorts_correctly_when_self_referencing(hierarchical_csv: str) -> None:
 def test_returns_none_when_not_self_referencing(non_hierarchical_csv: str) -> None:
     """Verify that None is returned if the hierarchy is not self-referencing."""
     sorted_file = sort_for_self_referencing(
-        non_hierarchical_csv, id_column="id", parent_column="category_id"
+        non_hierarchical_csv, id_column="id", parent_column="category_id", separator=","
     )
     assert sorted_file is None
 
@@ -70,18 +74,16 @@ def test_returns_none_if_columns_missing() -> None:
 
     assert (
         sort_for_self_referencing(
-            str(file_path), id_column="id", parent_column="parent_id"
+            str(file_path), id_column="id", parent_column="parent_id", separator=","
         )
         is None
     )
     file_path.unlink()
 
 
-def test_returns_none_for_non_existent_file() -> None:
-    """Verify that None is returned if the input file does not exist."""
-    assert (
-        sort_for_self_referencing(
-            "non_existent.csv", id_column="id", parent_column="parent_id"
-        )
-        is None
+def test_returns_false_for_non_existent_file() -> None:
+    """Verify that False is returned if the input file does not exist."""
+    result = sort_for_self_referencing(
+        "non_existent.csv", id_column="id", parent_column="parent_id", separator=","
     )
+    assert result is False

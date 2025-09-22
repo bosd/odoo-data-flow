@@ -88,6 +88,67 @@ def _resolve_related_ids(
         return None
 
 
+def _derive_missing_relation_info(
+    model: str,
+    field: str,
+    relational_table: Optional[str],
+    owning_model_fk: Optional[str],
+    related_model_fk: Optional[str],
+) -> tuple[Optional[str], Optional[str]]:
+    """Derive missing relation table and field names if possible.
+
+    Args:
+        model: The owning model name
+        field: The field name
+        relational_table: Current relation table name (may be None)
+        owning_model_fk: Current owning model foreign key field name (may be None)
+        related_model_fk: Related model name (needed for derivation)
+
+    Returns:
+        Tuple of (relational_table, owning_model_fk) with derived values
+        where missing, or original values if already present
+    """
+    # Try to derive missing information if possible
+    if (not relational_table or not owning_model_fk) and related_model_fk:
+        # Try to derive the relation table and field names
+        derived_table, derived_field = _derive_relation_info(
+            model, field, related_model_fk
+        )
+
+        # Only use derived values if we were missing them
+        if not relational_table:
+            log.info(f"Deriving relation_table for field '{field}': {derived_table}")
+            relational_table = derived_table
+        if not owning_model_fk:
+            log.info(f"Deriving relation_field for field '{field}': {derived_field}")
+            owning_model_fk = derived_field
+
+    return relational_table, owning_model_fk
+
+
+def _derive_relation_info(
+    model: str, field: str, related_model_fk: str
+) -> tuple[str, str]:
+    """Derive relation table and field names based on Odoo conventions.
+
+    Args:
+        model: The owning model name
+        field: The field name
+        related_model_fk: The related model name
+
+    Returns:
+        A tuple of (relation_table, relation_field)
+    """
+    # Derive relation table name (typically follows pattern: model1_model2_rel)
+    models = sorted([model, related_model_fk])
+    derived_table = f"{models[0].replace('.', '_')}_{models[1].replace('.', '_')}_rel"
+
+    # Derive the owning model field name (typically model_name_id)
+    derived_field = f"{model.replace('.', '_')}_id"
+
+    return derived_table, derived_field
+
+
 def run_direct_relational_import(
     config: Union[str, dict[str, Any]],
     model: str,
@@ -107,15 +168,48 @@ def run_direct_relational_import(
         description=f"Pass 2/2: Updating relations for [bold]{field}[/bold]",
     )
     log.info(f"Running 'Direct Relational Import' for field '{field}'...")
-    relational_table = strategy_details["relation_table"]
-    owning_model_fk = strategy_details["relation_field"]
-    related_model_fk = strategy_details["relation"]
+
+    # Check if required keys exist
+    relational_table = strategy_details.get("relation_table")
+    owning_model_fk = strategy_details.get("relation_field")
+    related_model_fk = strategy_details.get("relation")
+
+    # Try to derive missing information if possible
+    relational_table, owning_model_fk = _derive_missing_relation_info(
+        model, field, relational_table, owning_model_fk, related_model_fk
+    )
+
+    # If we don't have the required information, we can't proceed with this strategy
+    if not relational_table or not owning_model_fk:
+        log.error(
+            f"Cannot run direct relational import for field '{field}': "
+            f"Missing relation_table or relation_field in strategy details."
+        )
+        return None
 
     # 1. Prepare the owning model's IDs
     owning_df = pl.DataFrame({"external_id": id_map.keys(), "db_id": id_map.values()})
 
+    # Debug: Print available columns and the field we're looking for
+    log.debug(f"Available columns in source_df: {source_df.columns}")
+    log.debug(f"Looking for field: {field}")
+
+    # Check if the field exists in the DataFrame
+    if field not in source_df.columns:
+        log.error(
+            f"Field '{field}' not found in source DataFrame. "
+            f"Available columns: {source_df.columns}"
+        )
+        return None
+
     # 2. Prepare the related model's IDs using the resolver
     all_related_ext_ids = source_df.get_column(field).str.split(",").explode()
+    if related_model_fk is None:
+        log.error(
+            f"Cannot resolve related IDs: Missing relation in strategy details "
+            f"for field '{field}'."
+        )
+        return None
     related_model_df = _resolve_related_ids(
         config, related_model_fk, all_related_ext_ids
     )
@@ -151,6 +245,64 @@ def run_direct_relational_import(
     }
 
 
+def _prepare_link_dataframe(
+    source_df: pl.DataFrame,
+    field: str,
+    owning_df: pl.DataFrame,
+    related_model_df: pl.DataFrame,
+    owning_model_fk: str,
+    related_model_fk: str,
+) -> pl.DataFrame:
+    """Prepare the link table DataFrame for relational imports.
+
+    Args:
+        source_df: The source DataFrame
+        field: The field name
+        owning_df: DataFrame with owning model IDs
+        related_model_df: DataFrame with related model IDs
+        owning_model_fk: The owning model foreign key field name
+        related_model_fk: The related model name
+
+    Returns:
+        The prepared link DataFrame
+    """
+    # Debug: Print available columns and the field we're looking for
+    log.debug(f"Available columns in source_df: {source_df.columns}")
+    log.debug(f"Looking for field: {field}")
+
+    # Check if the field exists in the DataFrame
+    if field not in source_df.columns:
+        log.error(
+            f"Field '{field}' not found in source DataFrame. "
+            f"Available columns: {source_df.columns}"
+        )
+        # Return an empty DataFrame with the expected schema
+        return pl.DataFrame(
+            schema={
+                "external_id": pl.Utf8,
+                field: pl.Utf8,
+                owning_model_fk: pl.Int64,
+                f"{related_model_fk}/id": pl.Int64,
+            }
+        )
+
+    # Create the link table DataFrame
+    link_df = source_df.select(["id", field]).rename({"id": "external_id"})
+    link_df = link_df.with_columns(pl.col(field).str.split(",")).explode(field)
+
+    # Join to get DB IDs for the owning model
+    link_df = link_df.join(owning_df, on="external_id", how="inner").rename(
+        {"db_id": owning_model_fk}
+    )
+
+    # Join to get DB IDs for the related model
+    link_df = link_df.join(
+        related_model_df.rename({"external_id": field}), on=field, how="inner"
+    ).rename({"db_id": f"{related_model_fk}/id"})
+
+    return link_df
+
+
 def run_write_tuple_import(
     config: Union[str, dict[str, Any]],
     model: str,
@@ -170,15 +322,49 @@ def run_write_tuple_import(
         description=f"Pass 2/2: Updating relations for [bold]{field}[/bold]",
     )
     log.info(f"Running 'Write Tuple' for field '{field}'...")
-    relational_table = strategy_details["relation_table"]
-    owning_model_fk = strategy_details["relation_field"]
-    related_model_fk = strategy_details["relation"]
+
+    # Check if required keys exist
+    relational_table = strategy_details.get("relation_table")
+    owning_model_fk = strategy_details.get("relation_field")
+    related_model_fk = strategy_details.get("relation")
+
+    # Try to derive missing information if possible
+    relational_table, owning_model_fk = _derive_missing_relation_info(
+        model, field, relational_table, owning_model_fk, related_model_fk
+    )
+
+    # If we still don't have the required information, we can't proceed
+    # with this strategy
+    if not relational_table or not owning_model_fk:
+        log.error(
+            f"Cannot run write tuple import for field '{field}': "
+            f"Missing relation_table or relation_field in strategy details."
+        )
+        return False
 
     # 1. Prepare the owning model's IDs
     owning_df = pl.DataFrame({"external_id": id_map.keys(), "db_id": id_map.values()})
 
+    # Debug: Print available columns and the field we're looking for
+    log.debug(f"Available columns in source_df: {source_df.columns}")
+    log.debug(f"Looking for field: {field}")
+
+    # Check if the field exists in the DataFrame
+    if field not in source_df.columns:
+        log.error(
+            f"Field '{field}' not found in source DataFrame. "
+            f"Available columns: {source_df.columns}"
+        )
+        return False
+
     # 2. Prepare the related model's IDs using the resolver
     all_related_ext_ids = source_df.get_column(field).str.split(",").explode()
+    if related_model_fk is None:
+        log.error(
+            f"Cannot resolve related IDs: Missing relation in strategy details "
+            f"for field '{field}'."
+        )
+        return False
     related_model_df = _resolve_related_ids(
         config, related_model_fk, all_related_ext_ids
     )
@@ -187,20 +373,57 @@ def run_write_tuple_import(
         return False
 
     # 3. Create the link table DataFrame
-    link_df = source_df.select(["id", field]).rename({"id": "external_id"})
-    link_df = link_df.with_columns(pl.col(field).str.split(",")).explode(field)
-
-    # Join to get DB IDs for the owning model
-    link_df = link_df.join(owning_df, on="external_id", how="inner").rename(
-        {"db_id": owning_model_fk}
+    link_df = _prepare_link_dataframe(
+        source_df, field, owning_df, related_model_df, owning_model_fk, related_model_fk
     )
 
-    # Join to get DB IDs for the related model
-    link_df = link_df.join(
-        related_model_df.rename({"external_id": field}), on=field, how="inner"
-    ).rename({"db_id": f"{related_model_fk}/id"})
-
     # 4. Create records in the relational table
+    return _create_relational_records(
+        config,
+        model,
+        field,
+        relational_table,
+        owning_model_fk,
+        related_model_fk,
+        link_df,
+        owning_df,
+        related_model_df,
+        original_filename,
+        batch_size,
+    )
+
+
+def _create_relational_records(
+    config: Union[str, dict[str, Any]],
+    model: str,
+    field: str,
+    relational_table: str,
+    owning_model_fk: str,
+    related_model_fk: str,
+    link_df: pl.DataFrame,
+    owning_df: pl.DataFrame,
+    related_model_df: pl.DataFrame,
+    original_filename: str,
+    batch_size: int,
+) -> bool:
+    """Create records in the relational table.
+
+    Args:
+        config: Configuration for the connection
+        model: The model name
+        field: The field name
+        relational_table: The relational table name
+        owning_model_fk: The owning model foreign key field name
+        related_model_fk: The related model name
+        link_df: The link DataFrame
+        owning_df: DataFrame with owning model IDs
+        related_model_df: DataFrame with related model IDs
+        original_filename: The original filename
+        batch_size: The batch size for processing
+
+    Returns:
+        True if successful, False otherwise
+    """
     if isinstance(config, dict):
         connection = conf_lib.get_connection_from_dict(config)
     else:
@@ -209,8 +432,8 @@ def run_write_tuple_import(
 
     # We need to map back to the original external IDs for failure reporting
     # This is a bit heavy, but necessary for accurate error logs.
-    original_links_df = source_df.select(["id", field]).rename(
-        {"id": "parent_external_id"}
+    original_links_df = link_df.select(["external_id", field]).rename(
+        {"external_id": "parent_external_id"}
     )
     original_links_df = original_links_df.with_columns(
         pl.col(field).str.split(",")

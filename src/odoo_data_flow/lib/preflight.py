@@ -17,10 +17,66 @@ from odoo_data_flow.enums import PreflightMode
 from ..logging_config import log
 from . import cache, conf_lib, sort
 from .actions import language_installer
-from .internal.ui import _show_error_panel
+from .internal.ui import _show_error_panel, _show_warning_panel
 
 # A registry to hold all pre-flight check functions
 PREFLIGHT_CHECKS: list[Callable[..., bool]] = []
+
+
+def _handle_m2m_field(
+    field_name: str,
+    clean_field_name: str,
+    field_info: dict[str, Any],
+    df: pl.DataFrame,
+) -> tuple[bool, dict[str, Any]]:
+    """Handle many2many field processing and strategy selection."""
+    # Ensure the column is treated as string for splitting
+    relation_count = (
+        df.lazy()
+        .select(pl.col(field_name).cast(pl.Utf8).str.split(","))
+        .select(pl.col(field_name).list.len())
+        .sum()
+        .collect()
+        .item()
+    )
+    # Check if required keys exist for many2many fields
+    relation_table = field_info.get("relation_table")
+    relation_field = field_info.get("relation_field")
+    relation = field_info.get("relation")
+
+    strategy_details = {}
+    if relation_table and relation_field:
+        if relation_count >= 500:
+            strategy_details = {
+                "strategy": "direct_relational_import",
+                "relation_table": relation_table,
+                "relation_field": relation_field,
+                "relation": relation,
+            }
+        else:
+            strategy_details = {
+                "strategy": "write_tuple",
+                "relation_table": relation_table,
+                "relation_field": relation_field,
+                "relation": relation,
+            }
+    else:
+        # Log a warning when relation information is incomplete
+        log.warning(
+            f"Field '{clean_field_name}' is missing relation_table or relation_field "
+            f"in Odoo metadata. This may cause issues with relational import."
+        )
+        # Fallback strategy when relation information is incomplete
+        # Fallback to 'write_tuple' strategy. The import process will later
+        # attempt to derive the missing relational information.
+        strategy_details = {
+            "strategy": "write_tuple",
+            "relation_table": relation_table,
+            "relation_field": relation_field,
+            "relation": relation,
+        }
+
+    return True, strategy_details
 
 
 def register_check(func: Callable[..., bool]) -> Callable[..., bool]:
@@ -65,18 +121,29 @@ def self_referencing_check(
     log.info("Running pre-flight check: Detecting self-referencing hierarchy...")
     # We assume 'id' and 'parent_id' as conventional names.
     # This could be made configurable later if needed.
-    if sort.sort_for_self_referencing(
-        filename, id_column="id", parent_column="parent_id"
-    ):
+    result = sort.sort_for_self_referencing(
+        filename,
+        id_column="id",
+        parent_column="parent_id",
+        separator=kwargs.get("separator", ";"),
+    )
+    if result is False:
+        # This means there was an error in sort_for_self_referencing
+        # The error would have been displayed by the function itself
+        return False
+    elif result:
+        # This means sorting was performed and we have a file path
         log.info(
             "Detected self-referencing hierarchy. Planning one-pass sort strategy."
         )
         import_plan["strategy"] = "sort_and_one_pass_load"
         import_plan["id_column"] = "id"
         import_plan["parent_column"] = "parent_id"
+        return True
     else:
+        # result is None, meaning no hierarchy detected
         log.info("No self-referencing hierarchy detected.")
-    return True
+        return True
 
 
 def _get_installed_languages(config: Union[str, dict[str, Any]]) -> Optional[set[str]]:
@@ -277,6 +344,54 @@ def _validate_header(
             error_message += f"  - '{field}' is not a valid field on model '{model}'\n"
         _show_error_panel("Invalid Fields Found", error_message)
         return False
+
+    # Check for readonly fields that will be silently ignored
+    readonly_fields = []
+    for field in csv_header:
+        clean_field = field.split("/")[
+            0
+        ]  # Handle external ID fields like 'parent_id/id'
+        if clean_field in odoo_fields:
+            field_info = odoo_fields[clean_field]
+            is_readonly = field_info.get("readonly", False)
+            is_stored = field_info.get(
+                "store", True
+            )  # Default to True for stored fields
+
+            if is_readonly:
+                readonly_fields.append(
+                    {
+                        "field": field,
+                        "stored": is_stored,
+                        "type": field_info.get("type", "unknown"),
+                    }
+                )
+
+    # Warn about readonly fields, especially non-stored ones
+    if readonly_fields:
+        warning_message = (
+            "The following readonly fields will be silently ignored during import:\n"
+        )
+        non_stored_count = 0
+        for field_info in readonly_fields:
+            storage_status = "non-stored" if not field_info["stored"] else "stored"
+            if not field_info["stored"]:
+                non_stored_count += 1
+            warning_message += (
+                f"  - '{field_info['field']}' "
+                f"({storage_status} readonly {field_info['type']})\n"
+            )
+
+        if non_stored_count > 0:
+            warning_message += (
+                f"\n⚠️  {non_stored_count} non-stored readonly "
+                f"fields will be completely ignored!\n"
+            )
+        warning_message += (
+            "\nValues for these fields will be silently discarded during import."
+        )
+        _show_warning_panel("ReadOnly Fields Detected", warning_message)
+
     return True
 
 
@@ -310,29 +425,11 @@ def _plan_deferrals_and_strategies(
                 deferrable_fields.append(clean_field_name)
             elif is_m2m:
                 deferrable_fields.append(clean_field_name)
-                # Ensure the column is treated as string for splitting
-                relation_count = (
-                    df.lazy()
-                    .select(pl.col(field_name).cast(pl.Utf8).str.split(","))
-                    .select(pl.col(field_name).list.len())
-                    .sum()
-                    .collect()
-                    .item()
+                success, strategy_details = _handle_m2m_field(
+                    field_name, clean_field_name, field_info, df
                 )
-                if relation_count >= 500:
-                    strategies[clean_field_name] = {
-                        "strategy": "direct_relational_import",
-                        "relation_table": field_info["relation_table"],
-                        "relation_field": field_info["relation_field"],
-                        "relation": field_info["relation"],
-                    }
-                else:
-                    strategies[clean_field_name] = {
-                        "strategy": "write_tuple",
-                        "relation_table": field_info["relation_table"],
-                        "relation_field": field_info["relation_field"],
-                        "relation": field_info["relation"],
-                    }
+                if success:
+                    strategies[clean_field_name] = strategy_details
             elif is_o2m:
                 deferrable_fields.append(clean_field_name)
                 strategies[clean_field_name] = {"strategy": "write_o2m_tuple"}
@@ -384,7 +481,7 @@ def deferral_and_strategy_check(
         return False
 
     if preflight_mode == PreflightMode.FAIL_MODE:
-        log.info("Pre-flight Check Successful in Fail-Mode.")
+        log.debug("Skipping deferral and strategy check in fail mode.")
         return True
 
     kwargs.pop("separator", None)
