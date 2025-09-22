@@ -415,24 +415,23 @@ def _plan_deferrals_and_strategies(
             field_info = odoo_fields[clean_field_name]
             field_type = field_info.get("type")
 
-            is_m2o_self = (
-                field_type == "many2one" and field_info.get("relation") == model
-            )
-            is_m2m = field_type == "many2many"
-            is_o2m = field_type == "one2many"
+            field_type = field_info.get("type")
+            is_required = field_info.get("required", False)
 
-            if is_m2o_self:
+            # Defer any relational field, unless it's required.
+            is_relational = field_type in ("many2one", "many2many", "one2many")
+
+            if is_relational and not is_required:
                 deferrable_fields.append(clean_field_name)
-            elif is_m2m:
-                deferrable_fields.append(clean_field_name)
-                success, strategy_details = _handle_m2m_field(
-                    field_name, clean_field_name, field_info, df
-                )
-                if success:
-                    strategies[clean_field_name] = strategy_details
-            elif is_o2m:
-                deferrable_fields.append(clean_field_name)
-                strategies[clean_field_name] = {"strategy": "write_o2m_tuple"}
+
+                if field_type == "many2many":
+                    success, strategy_details = _handle_m2m_field(
+                        field_name, clean_field_name, field_info, df
+                    )
+                    if success:
+                        strategies[clean_field_name] = strategy_details
+                elif field_type == "one2many":
+                    strategies[clean_field_name] = {"strategy": "write_o2m_tuple"}
 
     if deferrable_fields:
         log.info(f"Detected deferrable fields: {deferrable_fields}")
