@@ -983,3 +983,53 @@ class TestExportData:
         )
         final_df = final_df.sort("id")
         assert_frame_equal(final_df, expected_df)
+
+    def test_export_with_non_existent_fields(
+        self, mock_conf_lib: MagicMock, tmp_path: Path
+    ) -> None:
+        """Tests that exporting with non-existent fields completes and adds null columns."""
+        # --- Arrange ---
+        header = ["id", "name", "field_does_not_exist", "another_bad_field"]
+        output_file = tmp_path / "output.csv"
+        mock_model = mock_conf_lib.return_value.get_model.return_value
+        mock_model.search.return_value = [1, 2]
+        mock_model.read.return_value = [
+            {"id": 1, "name": "Test 1"},
+            {"id": 2, "name": "Test 2"},
+        ]
+        mock_model.fields_get.return_value = {
+            "id": {"type": "integer"},
+            "name": {"type": "char"},
+        }
+
+        # --- Act ---
+        success, _, _, result_df = export_data(
+            config="dummy.conf",
+            model="res.partner",
+            domain=[],
+            header=header,
+            output=str(output_file),
+            technical_names=True,
+        )
+
+        # --- Assert ---
+        assert success is True
+        assert result_df is not None
+
+        expected_df = pl.DataFrame(
+            {
+                "id": [1, 2],
+                "name": ["Test 1", "Test 2"],
+                "field_does_not_exist": [None, None],
+                "another_bad_field": [None, None],
+            }
+        ).with_columns(
+            pl.col("id").cast(pl.Int64),
+            pl.col("field_does_not_exist").cast(pl.String),
+            pl.col("another_bad_field").cast(pl.String),
+        )
+
+        # Reorder columns to match expected output
+        result_df = result_df[expected_df.columns]
+
+        assert_frame_equal(result_df.sort("id"), expected_df.sort("id"))

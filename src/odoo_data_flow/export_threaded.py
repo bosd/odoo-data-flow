@@ -134,7 +134,15 @@ class RPCThreadExport(RpcThread):
                 if field in record:
                     value = record[field]
                     if isinstance(value, (list, tuple)) and value:
-                        new_record[field] = value[1]
+                        if len(value) > 1:
+                            new_record[field] = value[1]
+                        else:
+                            log.debug(
+                                "Malformed relational value found for field "
+                                f"'{field}'. Got {value} instead of a "
+                                "(id, name) tuple. Using None."
+                            )
+                            new_record[field] = None
                     else:
                         new_record[field] = value
                 else:
@@ -213,6 +221,8 @@ class RPCThreadExport(RpcThread):
                 ], ids_to_export
 
             for field in self.header:
+                if self.fields_info[field].get("type") == "non_existent":
+                    continue
                 base_field = field.split("/")[0].replace(".id", "id")
                 read_fields.add(base_field)
                 if self.is_hybrid and "/" in field and not field.endswith("/.id"):
@@ -323,6 +333,8 @@ def _initialize_export(
                     f" on model '{model_name}'. "
                     f"An empty column will be created."
                 )
+                fields_info[original_field] = {"type": "non_existent"}
+                continue
 
             field_type = "char"
             if meta:
