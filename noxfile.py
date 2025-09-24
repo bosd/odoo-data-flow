@@ -122,14 +122,14 @@ def precommit(session: nox.Session) -> None:
     session.run(
         "uv",
         "sync",
+        "--python",
+        str(session.python),
         "--group",
         "dev",
         "--group",
         "lint",
-        external=True,
     )
-    session.install("pydoclint")
-    session.run("pre-commit", *args, external=True)
+    session.run("pre-commit", *args)
     if args and args[0] == "install":
         activate_virtualenv_in_precommit_hooks(session)
 
@@ -142,11 +142,12 @@ def mypy(session: nox.Session) -> None:
     session.run(
         "uv",
         "sync",
+        "--python",
+        str(session.python),
         "--group",
         "dev",
         "--group",
         "mypy",
-        external=True,
     )
 
     session.install("mypy")
@@ -165,11 +166,12 @@ def tests(session: nox.Session) -> None:
     session.run(
         "uv",
         "sync",
+        "--python",
+        str(session.python),
         "--group",
         "dev",
         "--group",
         "lint",
-        external=True,
     )
 
     session.install("pytest", "coverage", "pytest-mock")
@@ -220,11 +222,12 @@ def typeguard_tests(session: nox.Session) -> None:
     session.run(
         "uv",
         "sync",
+        "--python",
+        str(session.python),
         "--group",
         "dev",
         "--group",
         "typeguard",
-        external=True,
     )
 
     session.install("typeguard", "pytest", "pytest-mock")
@@ -244,11 +247,12 @@ def xdoctest(session: nox.Session) -> None:
     session.run(
         "uv",
         "sync",
+        "--python",
+        str(session.python),
         "--group",
         "dev",
         "--group",
         "xdoctest",
-        external=True,
     )
     session.install("xdoctest")
     session.install("-e", ".")
@@ -265,11 +269,12 @@ def docs_build(session: nox.Session) -> None:
     session.run(
         "uv",
         "sync",
+        "--python",
+        str(session.python),
         "--group",
         "dev",
         "--group",
         "docs",
-        external=True,
     )
     session.install(
         "sphinx",
@@ -295,9 +300,10 @@ def docs(session: nox.Session) -> None:
     session.run(
         "uv",
         "sync",
+        "--python",
+        str(session.python),
         "--group",
         "docs",
-        external=True,
         env={"UV_PROJECT_ENVIRONMENT": session.virtualenv.location},
     )
 
