@@ -448,12 +448,12 @@ def _enrich_main_df_with_xml_ids(
         log.warning(f"No XML IDs found for the exported {model_name} records.")
         return df.with_columns(pl.lit(None, dtype=pl.String).alias("id"))
 
-    df_xml_ids = pl.DataFrame(
-        [
-            {"res_id": item["res_id"], "xml_id": f"{item['module']}.{item['name']}"}
-            for item in xml_id_data
-        ],
-        schema={"res_id": pl.Int64, "xml_id": pl.String},
+    df_xml_ids = (
+        pl.from_dicts(xml_id_data)
+        .with_columns(
+            pl.format("{}.{}", pl.col("module"), pl.col("name")).alias("xml_id")
+        )
+        .select(pl.col("res_id").cast(pl.Int64), "xml_id")
     )
 
     # Join to get the xml_id, overwrite 'id', and drop temporary columns.
