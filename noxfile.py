@@ -122,13 +122,15 @@ def precommit(session: nox.Session) -> None:
     session.run(
         "uv",
         "sync",
+        "--python",
+        session.python,
         "--group",
         "dev",
         "--group",
         "lint",
     )
     session.install("pydoclint")
-    session.run("python", "-m", "pre_commit", *args)
+    session.run("pre-commit", *args)
     if args and args[0] == "install":
         activate_virtualenv_in_precommit_hooks(session)
 

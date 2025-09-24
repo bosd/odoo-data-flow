@@ -582,8 +582,8 @@ def _process_export_batches(  # noqa: C901
         log.warning("No data was returned from the export.")
         # Adjust schema for empty DataFrame if enrichment was active
         if enrich_main_xml_id:
-            if ".id" in polars_schema:
-                del polars_schema[".id"]
+            # The .id column is correctly typed as Int64. The id column, which
+            # would also be Int64, needs its type changed to String for the header.
             polars_schema["id"] = pl.String()
         empty_df = pl.DataFrame(schema=polars_schema)
         if output:
