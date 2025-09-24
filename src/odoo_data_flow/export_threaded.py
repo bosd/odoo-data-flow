@@ -458,7 +458,7 @@ def _enrich_main_df_with_xml_ids(
 
     # Join to get the xml_id, overwrite 'id', and drop temporary columns.
     df_enriched = df.join(df_xml_ids, left_on=".id", right_on="res_id", how="left")
-    return df_enriched.with_columns(pl.col("xml_id").alias("id")).drop("xml_id")
+    return df_enriched.with_columns(pl.col("xml_id").alias("id")).drop(["xml_id", "res_id"])
 
 
 def _process_export_batches(  # noqa: C901
