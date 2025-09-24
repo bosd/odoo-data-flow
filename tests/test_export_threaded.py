@@ -994,13 +994,14 @@ class TestExportData:
         assert success is True
         assert result_df is not None
 
-        # The '.id' column should be gone, and 'id' should be the XML ID
+        # The '.id' column should be preserved, and 'id' should be the XML ID
         expected_df = pl.DataFrame(
             {
+                ".id": [1, 2],
                 "id": ["base.partner_a_xmlid", None],
                 "name": ["Partner A", "Partner B"],
             },
-            schema={"id": pl.String, "name": pl.String},
+            schema={".id": pl.Int64, "id": pl.String, "name": pl.String},
         )
 
         # Sort by name to ensure consistent order for comparison

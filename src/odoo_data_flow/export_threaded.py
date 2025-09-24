@@ -415,7 +415,7 @@ def _enrich_main_df_with_xml_ids(
 
     This function takes a DataFrame containing a '.id' column with numeric
     database IDs, fetches their corresponding external XML IDs from Odoo,
-    and uses them to populate the 'id' column.
+    and uses them to populate the 'id' column, preserving the '.id' column.
 
     Args:
         df: The Polars DataFrame to enrich. Must contain an '.id' column.
@@ -424,7 +424,7 @@ def _enrich_main_df_with_xml_ids(
 
     Returns:
         The enriched DataFrame with the 'id' column populated with XML IDs
-        and the '.id' column removed.
+        and the '.id' column preserved.
     """
     if ".id" not in df.columns:
         log.warning("'.id' column not found, cannot perform main XML ID enrichment.")
@@ -433,8 +433,8 @@ def _enrich_main_df_with_xml_ids(
     db_ids = df.get_column(".id").unique().drop_nulls().to_list()
     if not db_ids:
         log.debug("No database IDs found to enrich; ensuring 'id' is empty.")
-        # Overwrite 'id' with nulls and drop '.id'
-        return df.with_columns(pl.lit(None, dtype=pl.String).alias("id")).drop(".id")
+        # Overwrite 'id' with nulls, keep '.id'
+        return df.with_columns(pl.lit(None, dtype=pl.String).alias("id"))
 
     log.info(f"Fetching XML IDs for {len(db_ids)} main records...")
     ir_model_data = connection.get_model("ir.model.data")
@@ -446,7 +446,7 @@ def _enrich_main_df_with_xml_ids(
 
     if not xml_id_data:
         log.warning(f"No XML IDs found for the exported {model_name} records.")
-        return df.with_columns(pl.lit(None, dtype=pl.String).alias("id")).drop(".id")
+        return df.with_columns(pl.lit(None, dtype=pl.String).alias("id"))
 
     df_xml_ids = pl.DataFrame(
         [
@@ -458,9 +458,7 @@ def _enrich_main_df_with_xml_ids(
 
     # Join to get the xml_id, overwrite 'id', and drop temporary columns.
     df_enriched = df.join(df_xml_ids, left_on=".id", right_on="res_id", how="left")
-    return df_enriched.with_columns(pl.col("xml_id").alias("id")).drop(
-        [".id", "xml_id"]
-    )
+    return df_enriched.with_columns(pl.col("xml_id").alias("id")).drop("xml_id")
 
 
 def _process_export_batches(  # noqa: C901
