@@ -546,6 +546,8 @@ def run_write_tuple_import(
         related_model_df,
         original_filename,
         batch_size,
+        progress,
+        task_id,
     )
 
 
@@ -562,6 +564,8 @@ def _create_relational_records(
     related_model_df: pl.DataFrame,
     original_filename: str,
     batch_size: int,
+    progress: Progress,
+    task_id: TaskID,
 ) -> bool:
     """Create records in the relational table.
 
@@ -583,6 +587,8 @@ def _create_relational_records(
         related_model_df: DataFrame with related model IDs
         original_filename: The original filename
         batch_size: The batch size for processing
+        progress: The rich Progress object.
+        task_id: The TaskID for the current progress bar.
 
     Returns:
         True if successful, False otherwise
@@ -638,6 +644,9 @@ def _create_relational_records(
     successful_updates = 0
     failed_records_to_report = []
 
+    # Reset the progress bar for this specific field's updates
+    progress.update(task_id, total=len(grouped_data), completed=0)
+
     # Update each owning record with its many2many field values
     for owning_id, related_ids in grouped_data.items():
         try:
@@ -649,6 +658,7 @@ def _create_relational_records(
             # Update the owning record with the many2many field
             owning_model.write([owning_id], {field: m2m_command})
             successful_updates += 1
+            progress.update(task_id, advance=1)
 
         except Exception as e:
             log.error(
